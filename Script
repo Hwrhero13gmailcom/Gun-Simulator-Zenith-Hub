@@ -20,8 +20,16 @@ local function debugPrint(message)
    })
 end
 
--- Combat Tab
+-- Create all tabs first
+local MainTab = Window:CreateTab("🏠|Main", nil)
 local CombatTab = Window:CreateTab("🔫|Combat", nil)
+local PlayerTab = Window:CreateTab("🗣️|Player", nil)
+local VisualTab = Window:CreateTab("👁️|Visual", nil)
+
+-- Main Tab
+local MainSection = MainTab:CreateSection("Main Features")
+
+-- Combat Tab
 local CombatSection = CombatTab:CreateSection("Combat Features")
 
 -- AIMLOCK (Hold RMB)
@@ -125,7 +133,85 @@ local AimlockToggle = CombatTab:CreateToggle({
    end,
 })
 
-local PlayerTab = Window:CreateTab("🗣️|Player", nil)
+-- INFINITE AMMO in Combat Tab
+local InfAmmoToggle = CombatTab:CreateToggle({
+   Name = "Infinite Ammo",
+   CurrentValue = false,
+   Flag = "InfAmmoToggle",
+   Callback = function(Value)
+      _G.InfAmmo = Value
+      
+      if Value then
+         debugPrint("Infinite Ammo Activated")
+         
+         -- Method 1: Hook metatable to prevent ammo decrease
+         if not _G.originalMeta then
+            _G.originalMeta = {
+               __index = getrawmetatable(game).__index,
+               __newindex = getrawmetatable(game).__newindex
+            }
+         end
+         
+         setreadonly(getrawmetatable(game), false)
+         
+         getrawmetatable(game).__index = newcclosure(function(self, key)
+            if _G.InfAmmo then
+               local keyLower = tostring(key):lower()
+               if keyLower == "ammo" or keyLower == "bullets" or keyLower == "clip" then
+                  return math.huge
+               end
+            end
+            return _G.originalMeta.__index(self, key)
+         end)
+         
+         getrawmetatable(game).__newindex = newcclosure(function(self, key, value)
+            if _G.InfAmmo then
+               local keyLower = tostring(key):lower()
+               if keyLower == "ammo" or keyLower == "bullets" or keyLower == "clip" then
+                  if type(value) == "number" and value < 999 then
+                     return
+                  end
+               end
+            end
+            return _G.originalMeta.__newindex(self, key, value)
+         end)
+         
+         setreadonly(getrawmetatable(game), true)
+         
+         -- Method 2: Actively set ammo values
+         _G.ammoLoop = game:GetService("RunService").Heartbeat:Connect(function()
+            if not _G.InfAmmo then return end
+            local character = game.Players.LocalPlayer.Character
+            if character then
+               for _, tool in pairs(character:GetChildren()) do
+                  if tool:IsA("Tool") then
+                     for _, v in pairs(tool:GetDescendants()) do
+                        if v:IsA("IntValue") and (v.Name:lower():find("ammo") or v.Name:lower():find("bullet")) then
+                           v.Value = 9999
+                        end
+                     end
+                  end
+               end
+            end
+         end)
+      else
+         debugPrint("Infinite Ammo Deactivated")
+         -- Restore original metatable
+         if _G.originalMeta then
+            setreadonly(getrawmetatable(game), false)
+            getrawmetatable(game).__index = _G.originalMeta.__index
+            getrawmetatable(game).__newindex = _G.originalMeta.__newindex
+            setreadonly(getrawmetatable(game), true)
+         end
+         
+         if _G.ammoLoop then
+            _G.ammoLoop:Disconnect()
+         end
+      end
+   end
+})
+
+-- Player Tab
 local PlayerSection = PlayerTab:CreateSection("Player Features")
 
 local WalkSpeedSlider = PlayerTab:CreateSlider({
@@ -143,7 +229,6 @@ local WalkSpeedSlider = PlayerTab:CreateSlider({
    end,
 })
 
--- Add a toggle to make it persistent through respawns
 local PersistentWalkSpeed = PlayerTab:CreateToggle({
     Name = "Persistent WalkSpeed",
     CurrentValue = false,
@@ -158,17 +243,7 @@ local PersistentWalkSpeed = PlayerTab:CreateToggle({
     end
 })
 
--- Set initial walkspeed if the character exists
-local player = game:GetService("Players").LocalPlayer
-if player.Character then
-    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-    if humanoid then
-        humanoid.WalkSpeed = WalkSpeedSlider.Value
-    end
-end
-
--- Visual Tab with ESP
-local VisualTab = Window:CreateTab("👁️|Visual", nil)
+-- Visual Tab
 local VisualSection = VisualTab:CreateSection("ESP Features")
 
 local EspToggle = VisualTab:CreateToggle({
@@ -181,119 +256,71 @@ local EspToggle = VisualTab:CreateToggle({
       if Value then
          debugPrint("Initializing ESP...")
          
-         -- Table to store ESP boxes
          _G.espBoxes = {}
-         
          local Players = game:GetService("Players")
          local LocalPlayer = Players.LocalPlayer
-         local Camera = workspace.CurrentCamera
          
-         -- Function to create ESP box
          local function createEspBox(player)
             if player == LocalPlayer then return end
             
             local character = player.Character or player.CharacterAdded:Wait()
             local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
             
-            -- Create ESP box
-            local espBox = Instance.new("BoxHandleAdornment")
-            espBox.Name = player.Name .. "_ESP"
-            espBox.Adornee = humanoidRootPart
-            espBox.AlwaysOnTop = true
-            espBox.ZIndex = 10
-            espBox.Size = Vector3.new(2, 3, 1)
-            espBox.Transparency = 0.5
-            espBox.Color3 = player.Team == LocalPlayer.Team and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-            espBox.Parent = humanoidRootPart
+            local highlight = Instance.new("Highlight")
+            highlight.Name = player.Name .. "_ESP"
+            highlight.Adornee = character
+            highlight.FillColor = player.Team == LocalPlayer.Team and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+            highlight.FillTransparency = 0.5
+            highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+            highlight.Parent = character
             
-            -- Store in table
-            _G.espBoxes[player] = espBox
-            
-            -- Add name label
             local billboard = Instance.new("BillboardGui")
             billboard.Name = "ESP_Name"
             billboard.Adornee = humanoidRootPart
-            billboard.Size = UDim2.new(0, 100, 0, 40)
-            billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+            billboard.Size = UDim2.new(0, 100, 0, 50)
+            billboard.StudsOffset = Vector3.new(0, 3, 0)
             billboard.AlwaysOnTop = true
             billboard.Parent = humanoidRootPart
             
             local nameLabel = Instance.new("TextLabel")
-            nameLabel.Name = "NameLabel"
-            nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
-            nameLabel.Position = UDim2.new(0, 0, 0, 0)
-            nameLabel.BackgroundTransparency = 1
             nameLabel.Text = player.Name
+            nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+            nameLabel.BackgroundTransparency = 1
             nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            nameLabel.TextScaled = true
             nameLabel.Parent = billboard
             
-            -- Add distance label
-            local distanceLabel = Instance.new("TextLabel")
-            distanceLabel.Name = "DistanceLabel"
-            distanceLabel.Size = UDim2.new(1, 0, 0.5, 0)
-            distanceLabel.Position = UDim2.new(0, 0, 0.5, 0)
-            distanceLabel.BackgroundTransparency = 1
-            distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            distanceLabel.TextScaled = true
-            distanceLabel.Parent = billboard
-            
-            -- Update distance
-            _G.espConnection = game:GetService("RunService").Heartbeat:Connect(function()
-               if not _G.espEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                  return
-               end
-               
-               local localRoot = LocalPlayer.Character.HumanoidRootPart
-               if humanoidRootPart and humanoidRootPart.Parent then
-                  local distance = (localRoot.Position - humanoidRootPart.Position).Magnitude
-                  distanceLabel.Text = string.format("%.1f studs", distance)
-               end
-            end)
+            _G.espBoxes[player] = {Highlight = highlight, Billboard = billboard}
          end
          
-         -- Create ESP for existing players
          for _, player in pairs(Players:GetPlayers()) do
             if player.Character then
                createEspBox(player)
             end
-            player.CharacterAdded:Connect(function(character)
-               createEspBox(player)
+            player.CharacterAdded:Connect(function()
+               if _G.espEnabled then
+                  createEspBox(player)
+               end
             end)
          end
          
-         -- Handle new players
          Players.PlayerAdded:Connect(function(player)
-            player.CharacterAdded:Connect(function(character)
+            player.CharacterAdded:Connect(function()
                if _G.espEnabled then
                   createEspBox(player)
                end
             end)
          end)
-         
-         debugPrint("ESP enabled - Players highlighted")
       else
-         -- Clean up ESP
          if _G.espBoxes then
-            for player, espBox in pairs(_G.espBoxes) do
-               if espBox and espBox.Parent then
-                  espBox:Destroy()
-               end
-               if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                  local root = player.Character.HumanoidRootPart
-                  if root:FindFirstChild("ESP_Name") then
-                     root.ESP_Name:Destroy()
-                  end
-               end
+            for _, espData in pairs(_G.espBoxes) do
+               if espData.Highlight then espData.Highlight:Destroy() end
+               if espData.Billboard then espData.Billboard:Destroy() end
             end
             _G.espBoxes = {}
          end
-         
-         if _G.espConnection then
-            _G.espConnection:Disconnect()
-         end
-         
-         debugPrint("ESP disabled")
       end
-   end,
+   end
 })
+
+-- Initialization
+debugPrint("Script loaded successfully")
