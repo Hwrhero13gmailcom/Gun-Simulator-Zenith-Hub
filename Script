@@ -1,0 +1,309 @@
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "| Gun Simulator Script |",
+   LoadingTitle = "⚙️ZenithScripts ⚙️",
+   LoadingSubtitle = "by Z3nith_Scriptz",
+   ConfigurationSaving = {
+      FileName = "Z3nith_Scriptz best scripts"
+   }
+})
+
+-- Debugging function
+local function debugPrint(message)
+   print("[DEBUG] " .. message)
+   Rayfield:Notify({
+      Title = "Debug",
+      Content = message,
+      Duration = 3,
+      Image = 4483362458
+   })
+end
+
+-- Combat Tab
+local CombatTab = Window:CreateTab("🔫|Combat", nil)
+local CombatSection = CombatTab:CreateSection("Combat Features")
+
+-- AIMLOCK (Hold RMB)
+local AimlockToggle = CombatTab:CreateToggle({
+   Name = "Aimlock (Hold Right Click - Use First Person)",
+   CurrentValue = false,
+   Flag = "AimlockToggle",
+   Callback = function(Value)
+      _G.aimlockEnabled = Value
+      
+      if Value then
+         debugPrint("Initializing Aimlock...")
+         
+         -- Initialize only once
+         if _G.aimlockInitialized then
+            debugPrint("Aimlock already initialized")
+            return
+         end
+         _G.aimlockInitialized = true
+         
+         local Players = game:GetService("Players")
+         local LocalPlayer = Players.LocalPlayer
+         local Camera = workspace.CurrentCamera
+         local UIS = game:GetService("UserInputService")
+         
+         -- Wait for character to load
+         if not LocalPlayer.Character then
+            LocalPlayer.CharacterAdded:Wait()
+         end
+         local humanoid = LocalPlayer.Character:WaitForChild("Humanoid")
+         
+         local function getClosestPlayer()
+            local closestPlayer = nil
+            local shortestDistance = math.huge
+            local localRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+            
+            if not localRoot then
+               debugPrint("No local root part found")
+               return nil
+            end
+            
+            for _, player in pairs(Players:GetPlayers()) do
+               if player ~= LocalPlayer and player.Character then
+                  local character = player.Character
+                  local humanoid = character:FindFirstChildOfClass("Humanoid")
+                  local rootPart = character:FindFirstChild("HumanoidRootPart")
+                  
+                  if humanoid and humanoid.Health > 0 and rootPart then
+                     local distance = (localRoot.Position - rootPart.Position).Magnitude
+                     if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                     end
+                  end
+               end
+            end
+            return closestPlayer
+         end
+         
+         local rmbDown = false
+         UIS.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then
+               rmbDown = true
+            end
+         end)
+         
+         UIS.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton2 then
+               rmbDown = false
+            end
+         end)
+         
+         _G.aimlockConnection = game:GetService("RunService").Heartbeat:Connect(function()
+            if not _G.aimlockEnabled then
+               _G.aimlockConnection:Disconnect()
+               _G.aimlockInitialized = false
+               debugPrint("Aimlock disconnected")
+               return
+            end
+            
+            if rmbDown then
+               local closestPlayer = getClosestPlayer()
+               if closestPlayer and closestPlayer.Character then
+                  local targetRoot = closestPlayer.Character:FindFirstChild("HumanoidRootPart")
+                  if targetRoot then
+                     local direction = (targetRoot.Position - Camera.CFrame.Position).Unit
+                     Camera.CFrame = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + direction)
+                  end
+               end
+            end
+         end)
+         
+         debugPrint("Aimlock ready - Hold RMB to activate")
+      else
+         if _G.aimlockConnection then
+            _G.aimlockConnection:Disconnect()
+            _G.aimlockInitialized = false
+            debugPrint("Aimlock disabled")
+         end
+      end
+   end,
+})
+
+local InfammoToggle = MainTab:CreateToggle({
+   Name = "Inf Ammo",
+   CurrentValue = false,
+   Flag = "ToggleAmmo", -- A flag is the identifier for the configuration file, make sure every element has a different flag if you're using configuration saving to ensure no overlaps
+   Callback = function(Value)
+   -- The function that takes place when the toggle is pressed
+   -- The variable (Value) is a boolean on whether the toggle is true or false
+   end,
+})
+
+local PlayerTab = Window:CreateTab("🗣️|Player", nil)
+local PlayerSection = PlayerTab:CreateSection("Player Features")
+
+local WalkSpeedSlider = PlayerTab:CreateSlider({
+   Name = "Walkspeed Slider",
+   Range = {16, 100},
+   Increment = 1,
+   Suffix = "Speed",
+   CurrentValue = 16,
+   Flag = "WalkSpeedSlider",
+   Callback = function(Value)
+       local humanoid = game:GetService("Players").LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+       if humanoid then
+           humanoid.WalkSpeed = Value
+       end
+   end,
+})
+
+-- Add a toggle to make it persistent through respawns
+local PersistentWalkSpeed = PlayerTab:CreateToggle({
+    Name = "Persistent WalkSpeed",
+    CurrentValue = false,
+    Flag = "PersistentWalkSpeed",
+    Callback = function(Value)
+        if Value then
+            game:GetService("Players").LocalPlayer.CharacterAdded:Connect(function(character)
+                local humanoid = character:WaitForChild("Humanoid")
+                humanoid.WalkSpeed = WalkSpeedSlider.Value
+            end)
+        end
+    end
+})
+
+-- Set initial walkspeed if the character exists
+local player = game:GetService("Players").LocalPlayer
+if player.Character then
+    local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.WalkSpeed = WalkSpeedSlider.Value
+    end
+end
+
+-- Visual Tab with ESP
+local VisualTab = Window:CreateTab("👁️|Visual", nil)
+local VisualSection = VisualTab:CreateSection("ESP Features")
+
+local EspToggle = VisualTab:CreateToggle({
+   Name = "ESP (Player Highlight)",
+   CurrentValue = false,
+   Flag = "ESPToggle",
+   Callback = function(Value)
+      _G.espEnabled = Value
+      
+      if Value then
+         debugPrint("Initializing ESP...")
+         
+         -- Table to store ESP boxes
+         _G.espBoxes = {}
+         
+         local Players = game:GetService("Players")
+         local LocalPlayer = Players.LocalPlayer
+         local Camera = workspace.CurrentCamera
+         
+         -- Function to create ESP box
+         local function createEspBox(player)
+            if player == LocalPlayer then return end
+            
+            local character = player.Character or player.CharacterAdded:Wait()
+            local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+            
+            -- Create ESP box
+            local espBox = Instance.new("BoxHandleAdornment")
+            espBox.Name = player.Name .. "_ESP"
+            espBox.Adornee = humanoidRootPart
+            espBox.AlwaysOnTop = true
+            espBox.ZIndex = 10
+            espBox.Size = Vector3.new(2, 3, 1)
+            espBox.Transparency = 0.5
+            espBox.Color3 = player.Team == LocalPlayer.Team and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+            espBox.Parent = humanoidRootPart
+            
+            -- Store in table
+            _G.espBoxes[player] = espBox
+            
+            -- Add name label
+            local billboard = Instance.new("BillboardGui")
+            billboard.Name = "ESP_Name"
+            billboard.Adornee = humanoidRootPart
+            billboard.Size = UDim2.new(0, 100, 0, 40)
+            billboard.StudsOffset = Vector3.new(0, 3.5, 0)
+            billboard.AlwaysOnTop = true
+            billboard.Parent = humanoidRootPart
+            
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Name = "NameLabel"
+            nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+            nameLabel.Position = UDim2.new(0, 0, 0, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = player.Name
+            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameLabel.TextScaled = true
+            nameLabel.Parent = billboard
+            
+            -- Add distance label
+            local distanceLabel = Instance.new("TextLabel")
+            distanceLabel.Name = "DistanceLabel"
+            distanceLabel.Size = UDim2.new(1, 0, 0.5, 0)
+            distanceLabel.Position = UDim2.new(0, 0, 0.5, 0)
+            distanceLabel.BackgroundTransparency = 1
+            distanceLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            distanceLabel.TextScaled = true
+            distanceLabel.Parent = billboard
+            
+            -- Update distance
+            _G.espConnection = game:GetService("RunService").Heartbeat:Connect(function()
+               if not _G.espEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                  return
+               end
+               
+               local localRoot = LocalPlayer.Character.HumanoidRootPart
+               if humanoidRootPart and humanoidRootPart.Parent then
+                  local distance = (localRoot.Position - humanoidRootPart.Position).Magnitude
+                  distanceLabel.Text = string.format("%.1f studs", distance)
+               end
+            end)
+         end
+         
+         -- Create ESP for existing players
+         for _, player in pairs(Players:GetPlayers()) do
+            if player.Character then
+               createEspBox(player)
+            end
+            player.CharacterAdded:Connect(function(character)
+               createEspBox(player)
+            end)
+         end
+         
+         -- Handle new players
+         Players.PlayerAdded:Connect(function(player)
+            player.CharacterAdded:Connect(function(character)
+               if _G.espEnabled then
+                  createEspBox(player)
+               end
+            end)
+         end)
+         
+         debugPrint("ESP enabled - Players highlighted")
+      else
+         -- Clean up ESP
+         if _G.espBoxes then
+            for player, espBox in pairs(_G.espBoxes) do
+               if espBox and espBox.Parent then
+                  espBox:Destroy()
+               end
+               if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                  local root = player.Character.HumanoidRootPart
+                  if root:FindFirstChild("ESP_Name") then
+                     root.ESP_Name:Destroy()
+                  end
+               end
+            end
+            _G.espBoxes = {}
+         end
+         
+         if _G.espConnection then
+            _G.espConnection:Disconnect()
+         end
+         
+         debugPrint("ESP disabled")
+      end
+   end,
+})
